@@ -1,0 +1,475 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================
+// ÉNUMÉRATIONS
+// =============================================
+
+enum UserRole {
+  CHERCHEUR
+  ASSISTANT_CHERCHEUR
+  TECHNICIEN_SUPERIEUR
+  ADMINISTRATEUR
+}
+
+enum ProjectStatus {
+  PLANIFIE
+  EN_COURS
+  SUSPENDU
+  TERMINE
+  ARCHIVE
+}
+
+enum TaskStatus {
+  A_FAIRE
+  EN_COURS
+  EN_REVISION
+  TERMINEE
+  ANNULEE
+}
+
+enum TaskPriority {
+  BASSE
+  NORMALE
+  HAUTE
+  URGENTE
+}
+
+enum DocumentType {
+  RAPPORT
+  FICHE_ACTIVITE
+  FICHE_TECHNIQUE
+  DONNEES_EXPERIMENTALES
+  FORMULAIRE
+  IMAGE
+  AUTRE
+}
+
+enum SeminarStatus {
+  PLANIFIE
+  EN_COURS
+  TERMINE
+  ANNULE
+}
+
+// =============================================
+// GESTION DES UTILISATEURS
+// =============================================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  firstName     String
+  lastName      String
+  role          UserRole
+  isActive      Boolean  @default(true)
+  profileImage  String?
+  phoneNumber   String?
+  specialization String?
+  department    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations - Projets créés (pour les chercheurs)
+  createdProjects Project[] @relation("ProjectCreator")
+  
+  // Relations - Participation aux projets
+  projectParticipations ProjectParticipant[]
+  
+  // Relations - Tâches assignées
+  assignedTasks Task[] @relation("TaskAssignee")
+  
+  // Relations - Tâches créées
+  createdTasks Task[] @relation("TaskCreator")
+  
+  // Relations - Documents
+  documents Document[]
+  
+  // Relations - Formulaires créés
+  forms Form[]
+  
+  // Relations - Réponses aux formulaires
+  formResponses FormResponse[]
+  
+  // Relations - Commentaires
+  comments Comment[]
+  
+  // Relations - Séminaires organisés
+  organizedSeminars Seminar[] @relation("SeminarOrganizer")
+  
+  // Relations - Participation aux séminaires
+  seminarParticipations SeminarParticipant[]
+  
+  // Relations - Supervision (chercheur -> assistant)
+  supervisedUsers User[] @relation("UserSupervisor")
+  supervisor      User?  @relation("UserSupervisor", fields: [supervisorId], references: [id])
+  supervisorId    String?
+  
+  // Relations - Partage de documents (documents partagés avec cet utilisateur)
+  documentShares DocumentShare[]
+  
+  // Relations - Notifications
+  sentNotifications     Notification[] @relation("NotificationSender")
+  receivedNotifications Notification[] @relation("NotificationReceiver")
+
+  @@map("users")
+}
+
+// =============================================
+// GESTION DES PROJETS
+// =============================================
+
+model Project {
+  id           String        @id @default(cuid())
+  title        String
+  description  String?
+  objectives   String[]
+  status       ProjectStatus @default(PLANIFIE)
+  startDate    DateTime?
+  endDate      DateTime?
+  budget       Float?
+  keywords     String[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  // Relations
+  creator      User          @relation("ProjectCreator", fields: [creatorId], references: [id])
+  creatorId    String
+  
+  // Participants du projet
+  participants ProjectParticipant[]
+  
+  // Activités du projet
+  activities   Activity[]
+  
+  // Tâches du projet
+  tasks        Task[]
+  
+  // Documents du projet
+  documents    Document[]
+  
+  // Commentaires
+  comments     Comment[]
+
+  @@map("projects")
+}
+
+model ProjectParticipant {
+  id        String   @id @default(cuid())
+  role      String   // Rôle dans le projet
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  isActive  Boolean  @default(true)
+  
+  // Relations
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  @@unique([projectId, userId])
+  @@map("project_participants")
+}
+
+// =============================================
+// GESTION DES ACTIVITÉS
+// =============================================
+
+model Activity {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  objectives  String[]
+  methodology String?
+  location    String?
+  startDate   DateTime?
+  endDate     DateTime?
+  results     String?
+  conclusions String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  
+  // Tâches de l'activité
+  tasks       Task[]
+  
+  // Documents de l'activité
+  documents   Document[]
+  
+  // Formulaires liés
+  forms       Form[]
+  
+  // Commentaires
+  comments    Comment[]
+
+  @@map("activities")
+}
+
+// =============================================
+// GESTION DES TÂCHES
+// =============================================
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(A_FAIRE)
+  priority    TaskPriority @default(NORMALE)
+  dueDate     DateTime?
+  completedAt DateTime?
+  progress    Int          @default(0) // Pourcentage de completion
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  // Relations
+  creator     User         @relation("TaskCreator", fields: [creatorId], references: [id])
+  creatorId   String
+  
+  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId  String?
+  
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String?
+  
+  activity    Activity?    @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId  String?
+  
+  // Documents attachés
+  documents   Document[]
+  
+  // Commentaires
+  comments    Comment[]
+
+  @@map("tasks")
+}
+
+// =============================================
+// GESTION DES DOCUMENTS
+// =============================================
+
+model Document {
+  id          String       @id @default(cuid())
+  title       String
+  filename    String
+  filepath    String
+  mimeType    String
+  size        BigInt
+  type        DocumentType
+  description String?
+  tags        String[]
+  isPublic    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  // Relations
+  owner       User         @relation(fields: [ownerId], references: [id])
+  ownerId     String
+  
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String?
+  
+  activity    Activity?    @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId  String?
+  
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String?
+  
+  // Relations - Séminaire (pour les documents de séminaire)
+  seminar     Seminar?     @relation(fields: [seminarId], references: [id], onDelete: Cascade)
+  seminarId   String?
+  
+  // Partages du document
+  shares      DocumentShare[]
+
+  @@map("documents")
+}
+
+model DocumentShare {
+  id         String   @id @default(cuid())
+  canEdit    Boolean  @default(false)
+  canDelete  Boolean  @default(false)
+  sharedAt   DateTime @default(now())
+  
+  // Relations
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String
+  
+  sharedWith User     @relation(fields: [sharedWithId], references: [id], onDelete: Cascade)
+  sharedWithId String
+  
+  @@unique([documentId, sharedWithId])
+  @@map("document_shares")
+}
+
+// =============================================
+// GESTION DES FORMULAIRES DYNAMIQUES
+// =============================================
+
+model Form {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  schema      Json     // Structure JSON du formulaire
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  creator     User           @relation(fields: [creatorId], references: [id])
+  creatorId   String
+  
+  activity    Activity?      @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId  String?
+  
+  // Réponses au formulaire
+  responses   FormResponse[]
+
+  @@map("forms")
+}
+
+model FormResponse {
+  id          String   @id @default(cuid())
+  data        Json     // Données de la réponse
+  submittedAt DateTime @default(now())
+  
+  // Relations
+  form        Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId      String
+  
+  respondent  User     @relation(fields: [respondentId], references: [id])
+  respondentId String
+
+  @@map("form_responses")
+}
+
+// =============================================
+// GESTION DES SÉMINAIRES
+// =============================================
+
+model Seminar {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  location    String?
+  startDate   DateTime
+  endDate     DateTime?
+  status      SeminarStatus @default(PLANIFIE)
+  agenda      String?
+  maxParticipants Int?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // Relations
+  organizer   User              @relation("SeminarOrganizer", fields: [organizerId], references: [id])
+  organizerId String
+  
+  // Participants
+  participants SeminarParticipant[]
+  
+  // Documents du séminaire
+  documents   Document[]
+
+  @@map("seminars")
+}
+
+model SeminarParticipant {
+  id         String   @id @default(cuid())
+  registeredAt DateTime @default(now())
+  attendedAt   DateTime?
+  
+  // Relations
+  seminar    Seminar  @relation(fields: [seminarId], references: [id], onDelete: Cascade)
+  seminarId  String
+  
+  participant User    @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  participantId String
+  
+  @@unique([seminarId, participantId])
+  @@map("seminar_participants")
+}
+
+// =============================================
+// SYSTÈME DE COMMENTAIRES
+// =============================================
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String
+  
+  // Référence polymorphe - peut être lié à projet, activité ou tâche
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String?
+  
+  activity  Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId String?
+  
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String?
+
+  @@map("comments")
+}
+
+// =============================================
+// SYSTÈME DE NOTIFICATIONS
+// =============================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  type      String   // 'task_assigned', 'project_update', 'seminar_reminder', etc.
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  
+  // Relations
+  sender    User?    @relation("NotificationSender", fields: [senderId], references: [id])
+  senderId  String?
+  
+  receiver  User     @relation("NotificationReceiver", fields: [receiverId], references: [id])
+  receiverId String
+  
+  // Référence vers l'entité concernée (optionnel)
+  entityType String? // 'project', 'task', 'seminar', etc.
+  entityId   String?
+
+  @@map("notifications")
+}
+
+// =============================================
+// SYSTÈME DE LOGS/AUDIT
+// =============================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', etc.
+  entityType String  // 'USER', 'PROJECT', 'DOCUMENT', etc.
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  userId     String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}
